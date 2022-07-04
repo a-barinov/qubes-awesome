@@ -1,0 +1,7 @@
+Show menu on right click (or space) in the right menu
+Show button to disconnect all if applicable, lq-storage on right click
+Show Transient app group first, show terminals for browsers and core-rdp there
+Show button for mic sharing if applicable, menu with vms on right click
+Create printer icon with number of docs to print and printer selection/ sharing usb / shutdown on right click
+Show usb icon in right menu with device sharing if clicked / disconnect all on right click
+Tor: make a switch for obfs4, selection between tor and i2pd

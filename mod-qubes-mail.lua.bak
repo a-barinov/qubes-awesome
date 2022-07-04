@@ -1,0 +1,109 @@
+local awful = require("awful")
+
+
+widgets.mail = {
+    -- user-defined configuration
+    interval = 30,
+
+    -- plugin description
+    name = "Mail",
+    enabled = false,
+    priority = 4,
+    menu_category = "connection",
+    menu = {},
+
+    -- private interface
+    accounts = {},
+    timer = 2,
+
+    -- menu templates
+    menu_full = { [1] = { "Check mail", function() widgets.mail.mail_get() end, "/usr/share/icons/Adwaita/16x16/status/mail-unread.png" }},
+
+    -- update on startup
+    startup = function()
+        awful.util.spawn("qvm-prefs core-getmail netvm None")
+        vm_state_change("core-getmail", function(state)
+            if state == "domain-shutdown" or state == "domain-start-failed" then
+                awful.util.spawn("qvm-prefs core-getmail netvm None")
+            end
+        end)
+    end,
+
+    -- update every minute
+    update = function()
+        if tor_running() then
+            widgets.mail.menu = widgets.mail.menu_full
+            widgets.mail.timer = widgets.mail.timer - 1
+            if widgets.mail.timer == 0 then
+                widgets.mail.mail_get()
+            end
+        else
+            if length(widgets.mail.accounts) == 0 then
+                awful.util.spawn("qvm-run --no-gui --user user --service core-getmail alte.MailCount")
+            end
+            widgets.mail.menu = {}
+            widgets.mail.timer = 1
+        end
+    end,
+
+    -- start mail fetch and reset timer
+    mail_get = function()
+        widgets.mail.timer = widgets.mail.interval
+        awful.util.spawn("qvm-prefs core-getmail netvm fw-tor")
+        awful.util.spawn("qvm-run --no-gui --user user --service core-getmail alte.MailGet")
+    end,
+
+    -- update ui based on internal state
+    update_widget = function()
+        local text = ""
+        for name, account in pairs(widgets.mail.accounts) do
+            local subtext = name:sub(1, 1):upper() .. ":"
+            if account.count > 0 then
+                subtext = subtext .. tostring(account.count)
+            end
+            if account.state ~= "OK" then
+                if account.count > 0 then
+                    subtext = subtext .. ","
+                end
+                subtext = subtext .. account.state
+            end
+            if subtext:len() > 2 then
+                if text:len() > 0 then
+                    text = text .. ", "
+                end
+                text = text .. subtext
+            end
+        end
+
+        widgets.indicator.set_text(widgets.mail, text)
+        if text:len() > 0 then
+            widgets.mail.enabled = true
+        else
+            widgets.mail.enabled = false
+        end
+        widgets.indicator.set_state(widgets.mail)
+    end
+}
+widgets.indicator.create(widgets.mail, "󰗰")
+
+
+-- Callback for external script
+mail_count = function(account, count)
+    if widgets.mail.accounts[account] == nil then
+        widgets.mail.accounts[account] = { count = tonumber(count), state = "OK" }
+    else
+        widgets.mail.accounts[account] = { count = tonumber(count), state = widgets.mail.accounts[account].state }
+    end
+    widgets.mail.update_widget()
+end
+
+
+-- Callback for external script
+mail_state = function(account, state)
+    if widgets.mail.accounts[account] == nil then
+        widgets.mail.accounts[account] = { count = 0, state = state }
+    else
+        widgets.mail.accounts[account] = { count = widgets.mail.accounts[account].count, state = state }
+    end
+    widgets.mail.update_widget()
+end

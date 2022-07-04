@@ -1,0 +1,135 @@
+local awful = require("awful")
+
+
+widgets.media = {
+    -- user-defined configuration
+    allowed_vms = {"dvm-chromium", "core-rdp"},
+    default_source = "1",
+    default_volume = "100%",
+
+    -- plugin description
+    name = "Media Devices",
+    enabled = false,
+    priority = 0,
+    menu_category = "sharing",
+    menu = {},
+
+    -- private interface
+    running_vms = {},
+    shared_with = "",
+    muted = false,
+
+    -- menu templates
+    menu_share = {
+        [1] = { "Share Mic with", {}, "/usr/share/icons/Adwaita/16x16/devices/audio-card.png" },
+    },
+    menu_unshare_unmute = {
+        [1] = { "Unmute", function() widgets.media.mute_set(false) end, "/usr/share/icons/Adwaita/16x16/status/microphone-sensitivity-high.png" },
+        [2] = { "Stop Sharing Mic", function() widgets.media.unshare() end, "/usr/share/icons/Adwaita/16x16/devices/audio-card.png" },
+    },
+    menu_unshare_mute = {
+        [1] = { "Mute", function() widgets.media.mute_set(true) end, "/usr/share/icons/Adwaita/16x16/status/microphone-sensitivity-muted.png" },
+        [2] = { "Stop Sharing Mic", function() widgets.media.unshare() end, "/usr/share/icons/Adwaita/16x16/devices/audio-card.png" },
+    },
+
+    -- mute mic without disconnecting
+    mute_set = function(state)
+        if state then
+            awful.util.spawn("/usr/bin/pactl set-source-mute " .. widgets.media.default_source .. " 1")
+        else
+            awful.util.spawn("/usr/bin/pactl set-source-mute " .. widgets.media.default_source .. " 0")
+        end
+        widgets.media.muted = state
+        widgets.media.update_widget()
+    end,
+
+    -- connect mic to vm
+    share = function(vm)
+        awful.util.spawn("/usr/bin/qvm-device mic attach " .. vm .. " dom0:mic")
+        awful.util.spawn("pactl set-source-volume " .. widgets.media.default_source .. " " .. widgets.media.default_volume)
+        widgets.media.shared_with = vm
+        widgets.media.mute_set(false)
+    end,
+
+    -- disconnect mic from vm
+    unshare = function()
+        awful.util.spawn("/usr/bin/qvm-device mic detach " .. widgets.media.shared_with .. " dom0:mic")
+        widgets.media.shared_with = ""
+        widgets.media.mute_set(true)
+    end,
+
+    -- update state
+    on_vm_state_change = function(vm, state)
+        for _,vm_allowed in ipairs(widgets.media.allowed_vms) do
+            if vm == vm_allowed then
+                if state == "domain-start" then
+                    widgets.media.running_vms[vm] = true
+                elseif state == "domain-pre-shutdown" or state == "domain-shutdown" then
+                    widgets.media.running_vms[vm] = nil
+                    if widgets.media.shared_with == vm then
+                        widgets.media.unshare()
+                    end
+                end
+            end
+        end
+        widgets.media.update_widget()
+    end,
+
+    -- set initial state
+    startup = function()
+        for _,vm in ipairs(widgets.media.allowed_vms) do
+            if vm_state(vm) == 'running' then
+                widgets.media.running_vms[vm] = true
+            end
+        end
+        widgets.media.shared_with = read_command('/bin/bash -c "/usr/bin/qvm-device mic list | cut -c23-"'):gsub("^%s*(.-)%s*$", "%1")
+        widgets.media.muted = (read_command('/bin/bash -c "/usr/bin/pactl list sources | /bin/grep Mute | /bin/tail -n1 | /bin/cut -c8-"') == "yes\n")
+        widgets.media.update_widget()
+    end,
+
+    -- update ui based on internal state
+    update_widget = function()
+        local count = 0
+        for vm, state in pairs(widgets.media.running_vms) do
+            if state == true then
+                count = count + 1
+            end
+        end
+        if count == 0 then
+            widgets.media.enabled = false
+            widgets.media.menu_share[1][2] = {}
+            widgets.media.menu = {}
+        else
+            if widgets.media.shared_with == "" then
+                widgets.media.enabled = false
+                local submenu = {}
+                for vm, state in pairs(widgets.media.running_vms) do
+                    if state == true then
+                        table.insert(submenu, {vm, function() widgets.media.share(vm) end, "/usr/share/icons/Adwaita/16x16/status/microphone-sensitivity-high.png" })
+                    end
+                end
+                widgets.media.menu_share[1][2] = submenu
+                widgets.media.menu = widgets.media.menu_share
+            else
+                widgets.media.alttext = "Mic shared with <b>" .. widgets.media.shared_with .. "</b>"
+                widgets.media.enabled = true
+                if widgets.media.muted then
+                    widgets.indicator.set_icon(widgets.media, "󰍭")
+                    widgets.media.menu = widgets.media.menu_unshare_unmute
+                else
+                    widgets.indicator.set_icon(widgets.media, "󰍬")
+                    widgets.media.menu = widgets.media.menu_unshare_mute
+                end
+            end
+        end
+        widgets.indicator.set_state(widgets.media)
+    end,
+}
+widgets.indicator.create(widgets.media, "󰍬")
+vm_state_change("*", widgets.media.on_vm_state_change)
+
+
+-- For use with key bindings
+toggle_mic_mute = function()
+    widgets.media.mute_set(not widgets.media.muted)
+end

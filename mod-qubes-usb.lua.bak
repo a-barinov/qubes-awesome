@@ -1,0 +1,67 @@
+local awful = require("awful")
+
+
+-- Initial state
+widgets.usb = {
+    name = "USB Disks",
+    enabled = false,
+    mounted = {},
+    priority = 0,
+    menu_category = "sharing",
+    menu = {},
+    menu_full = {
+        --TODO show progress while copying
+        [1] = { "Copy from USB", "qvm-run --quiet --no-auto --no-gui --service core-usb alte.FileSend", "/usr/share/icons/Adwaita/16x16/actions/edit-copy.png" },
+        --TODO submit error to make sure file selector is working
+        [2] = { "Backup", "qubes-backup &", "/usr/share/icons/Adwaita/16x16/actions/document-save.png" },
+        [3] = { "Restore", "qubes-backup-restore &", "/usr/share/icons/Adwaita/16x16/actions/document-open.png" },
+        --TODO make service for this
+        [4] = { "Unmount all", "qrexec-client -d core-usb root:'/bin/systemctl --state=active list-units | grep usb-mount@ | cut -d\" \" -f1 | xargs /bin/systemctl stop '", "/usr/share/icons/Adwaita/16x16/actions/media-eject.png" },
+    },
+}
+widgets.indicator.create(widgets.usb, "󰘬")
+
+
+-- Callback for external script
+widgets.usb.state = function(state, name)
+    if state == "mount" then
+        table.insert(widgets.usb.mounted, name)
+        widgets.usb.enabled = true
+        widgets.usb.menu = widgets.usb.menu_full
+    elseif state == "umount" then
+        for i=#widgets.usb.mounted, 1, -1 do
+            if widgets.usb.mounted[i] == name then
+                table.remove(widgets.usb.mounted, i)
+            end
+        end
+        if #widgets.usb.mounted == 0 then
+            widgets.usb.enabled = false
+            widgets.usb.menu = {}
+            confirm({ text = "Restart core-usb?", command = function() awful.util.spawn(config.home .. "scripts/vm-restart.sh core-usb") end })
+        end
+    end
+    if #widgets.usb.mounted == 0 then
+        widgets.usb.alttext = nil
+    else
+        widgets.usb.alttext = nil
+        for _,name in pairs(widgets.usb.mounted) do
+            if widgets.usb.alttext ~= nil then
+                widgets.usb.alttext = widgets.usb.alttext .. "\n"
+            else
+                widgets.usb.alttext = ""
+            end
+            widgets.usb.alttext = widgets.usb.alttext .. name
+        end
+    end
+    widgets.indicator.set_state(widgets.usb)
+end
+
+
+-- VM state changes
+vm_state_change("core-usb", function(state)
+    if state ~= "domain-start" then
+        widgets.usb.enabled = false
+        widgets.usb.menu = {}
+    end
+    widgets.indicator.set_state(widgets.usb)
+end)

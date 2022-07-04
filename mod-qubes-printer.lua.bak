@@ -1,0 +1,46 @@
+local awful = require("awful")
+
+
+widgets.printer = {
+    -- plugin description
+    name = "Printer",
+    enabled = false,
+    menu_category = "sharing",
+    priority = 6,
+    menu = {},
+
+    -- menu templates
+    menu_disconnect = { "Disconnect all", function() widgets.printer.disconnect() end, "/usr/share/icons/Adwaita/16x16/actions/media-eject.png"},
+
+    -- run on startup
+    startup = function()
+        vm_state_change("core-print", function(state)
+            if state == "domain-start" and widgets.printer.enabled == 1 then
+                awful.util.spawn('config.home .. "scripts/connect-printer.sh')
+            end
+        end)
+    end,
+
+    -- update widget based on internal state
+    widget_update = function()
+        widgets.indicator.set_state(widgets.printer)
+    end,
+}
+widgets.indicator.create(widgets.printer, "tor.png")
+
+
+-- Callback for external script
+printer_action = function(action)
+    if action == "add" then
+        widgets.printer.enabled = 1
+        if vm_state("core-print") == 'running' then
+            awful.util.spawn(config.home .. "scripts/connect-printer.sh")
+        else
+            awful.util.spawn('qvm-start --quiet core-print')
+        end
+    end
+    if action == "remove" then
+        widgets.printer.enabled = 0
+    end
+    widgets.printer.widget_update()
+end
